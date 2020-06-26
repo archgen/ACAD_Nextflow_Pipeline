@@ -1,2 +1,2 @@
 # ACAD_Nextflow_Pipeline
-A nextflow pipeline for aDNA processing and mapping
+A nextflow pipeline for aDNA processing and mapping (STILL IN TESTING)
