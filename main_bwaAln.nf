@@ -183,15 +183,17 @@ process runDeDup {
 
     script:
     """
-    ${java} -jar ${deDupJar} -i ${bam} -m -o ./ \
-    | 
+    ${java} -jar ${deDupJar} -i ${bam} -m -u -o . 
     samtools sort \
         -@ ${task.cpus} \
         -O BAM \
         -o ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_rmdup_sorted.bam \
+        ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup.bam
 
-        samtools index \
+    samtools index \
     ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_rmdup_sorted.bam
+    #mv *.log ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted.log
+    #mv *.json ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted.dedup.json
 """
 }
 
@@ -362,9 +364,9 @@ process runIndelRealignment {
 
     script:
     """ 
-    ${java} -Xmx8G -jar ${gatk3_jar} -T RealignerTargetCreator -R ${ref_fasta} --num_threads ${task.cpus} --mismatchFraction 0.30 --maxIntervalSize 650 --allow_potentially_misencoded_quality_scores -I ${bam} -o ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.bam.intervals
+    ${java} -Xmx8G -jar ${gatk3_jar} -T RealignerTargetCreator -R ${ref_fasta} --num_threads ${task.cpus} --mismatchFraction 0.30 --maxIntervalSize 650 --allow_potentially_misencoded_quality_scores -I ${bam} -o ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.intervals
 
-    ${java} -Xmx8G -jar ${gatk3_jar} -T IndelRealigner -R ${ref_fasta} -model USE_READS -compress 0 --filter_bases_not_stored --allow_potentially_misencoded_quality_scores -I ${bam} -targetIntervals ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_BwaALN_RmDup_sorted_IndelReal.intervals -o ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.bam
+    ${java} -Xmx8G -jar ${gatk3_jar} -T IndelRealigner -R ${ref_fasta} -model USE_READS -compress 0 --filter_bases_not_stored --allow_potentially_misencoded_quality_scores -I ${bam} -targetIntervals ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.intervals -o ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.bam
 
     cp -v ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.bai ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.bam.bai 
 """
@@ -457,8 +459,7 @@ process runTrimBam {
     platformName,
     runName,
     file("${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam"),
-    file("${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam.bai"),
-    file("${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_MT.bam") into results_TrimBam
+    file("${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam.bai") into results_TrimBam
     module 'SAMtools/1.9-foss-2016b'
 
     script:
@@ -478,15 +479,15 @@ process runTrimBam {
 
     samtools index \
     ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam
-    samtools view -b ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam MT > ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_MT.bam
-    samtools index \
-    ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_MT.bam 
+    #samtools view -b ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.bam MT > ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_MT.bam
+    #samtools index \
+    #${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_MT.bam 
     """
 }
 
 
-// Split channel into 1 for QualiMap
- ( input_QualiMap ) = results_TrimBam.into(1)
+// Split channel into 2 for QualiMap and BedTools
+( input_QualiMap, input_BedTools ) = results_TrimBam.into(2)
 
 
 
@@ -499,21 +500,22 @@ process runQualimap {
     tag { sampleName + ' - QualiMap'}
 
     publishDir "${params.outDir}/QualiMap/${sampleName}_${experimentName}", mode: 'copy'
-
+    
     input:
-    set experimentName, 
-    sampleName, 
-    libraryName, 
-    unitName, 
-    platformName, 
-    runName, 
-    file(bam), 
-    file(bamBai), 
-    file(MTbam) from input_QualiMap
+    set experimentName,
+    sampleName,
+    libraryName,
+    unitName,
+    platformName,
+    runName,
+    file(bam),
+    file(bamBai) from input_QualiMap
     val ref_fasta_basename from params.genome
     file ref_fasta from referenceMap.genomeFile
     file ref_idx from referenceMap.genomeIndex
     java_mem = 8G
+    publishDir = publishDir
+ 
     output:
     file "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_qualimapReport.html" // Not needed for downstream == no channel
     file "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_genome_results.txt" // Not needed for downstream == no channel
@@ -522,12 +524,58 @@ process runQualimap {
     
     script:
     """
-    qualimap bamqc -gff /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -bam ${bam} -oc -c -nt ${task.cpus} --skip-duplicated --skip-dup-mode 0 --java-mem-size=12G -outdir ./ -outfile ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends.pdf -outformat pdf
-    cp -v qualimapReport.html ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_qualimapReport.html
-    cp -v genome_results.txt ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_genome_results.txt
+    qualimap bamqc -gff /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -bam ${bam} -c -nt ${task.cpus} --skip-duplicated --skip-dup-mode 0 --java-mem-size=12G -outdir ./
+    cp -v *qualimapReport.html ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_qualimapReport.html
+    cp -v *genome_results.txt ${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends_genome_results.txt
     """
 } 
 
+
+
+/*
+STEP 11: BedTools
+*/
+
+process runBedTools {
+
+    tag { sampleName + ' - BedTools'}
+
+    publishDir "${params.outDir}/BedTools/${sampleName}_${experimentName}", mode: 'copy'
+
+    input:
+    set experimentName,
+    sampleName,
+    libraryName,
+    unitName,
+    platformName,
+    runName,
+    file(bam),
+    file(bamBai) from input_BedTools
+    val ref_fasta_basename from params.genome
+    file ref_fasta from referenceMap.genomeFile
+    file ref_idx from referenceMap.genomeIndex
+    publishDir = publishDir
+
+    output:
+    file "*"
+
+// Load BedTools module (this is a conda module so check how this is done properly)
+
+    module 'pigz/2.3.3-foss-2016b'
+
+    script:
+    """
+    #genomeCoverageBed -i /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -g ${bam} > "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends".hist
+    #genomeCoverageBed -i /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -g ${bam} -d > "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends".depth
+    
+    #coverageBed -a /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -b ${bam} > "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends".coverage
+
+
+    bedtools coverage -a /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -b ${bam} -hist > "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends".hist
+    bedtools coverage -a /home/a1222106/fastdir/Refs/qualimap_1240k_positions_XY.bed -b ${bam} -d > "${sampleName}_${experimentName}_${libraryName}_${runName}_${ref_fasta_basename}_collapsed_bwaALN_sorted_rmdup_IndelReal.trim3_2ends".depth
+    #mv "*" .    
+"""
+}
 
 
 
